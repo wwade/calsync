@@ -1,10 +1,9 @@
 """State database management for tracking synced events."""
 
-import sqlite3
 import os
-from pathlib import Path
-from typing import Optional, List, Tuple
+import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 class StateDB:
@@ -56,7 +55,9 @@ class StateDB:
 
         self.conn.commit()
 
-    def get_synced_event(self, source_calendar_id: str, source_event_id: str) -> Optional[Tuple[str, str, datetime]]:
+    def get_synced_event(
+        self, source_calendar_id: str, source_event_id: str
+    ) -> tuple[str, str, datetime] | None:
         """Get target event info for a synced event.
 
         Args:
@@ -67,11 +68,14 @@ class StateDB:
             Tuple of (target_calendar_id, target_event_id, last_synced) or None
         """
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT target_calendar_id, target_event_id, last_synced
             FROM synced_events
             WHERE source_calendar_id = ? AND source_event_id = ?
-        """, (source_calendar_id, source_event_id))
+        """,
+            (source_calendar_id, source_event_id),
+        )
 
         result = cursor.fetchone()
         if result:
@@ -83,9 +87,14 @@ class StateDB:
             return result[0], result[1], last_synced
         return None
 
-    def record_sync(self, source_calendar_id: str, source_event_id: str,
-                   target_calendar_id: str, target_event_id: str,
-                   source_updated: Optional[datetime] = None):
+    def record_sync(
+        self,
+        source_calendar_id: str,
+        source_event_id: str,
+        target_calendar_id: str,
+        target_event_id: str,
+        source_updated: datetime | None = None,
+    ):
         """Record a synced event.
 
         Args:
@@ -99,17 +108,26 @@ class StateDB:
         now = datetime.now(timezone.utc).isoformat()
         source_updated_str = source_updated.isoformat() if source_updated else None
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT OR REPLACE INTO synced_events
             (source_calendar_id, source_event_id, target_calendar_id, target_event_id,
              source_updated, last_synced)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (source_calendar_id, source_event_id, target_calendar_id, target_event_id,
-              source_updated_str, now))
+        """,
+            (
+                source_calendar_id,
+                source_event_id,
+                target_calendar_id,
+                target_event_id,
+                source_updated_str,
+                now,
+            ),
+        )
 
         self.conn.commit()
 
-    def delete_sync_record(self, source_calendar_id: str, source_event_id: str) -> Optional[str]:
+    def delete_sync_record(self, source_calendar_id: str, source_event_id: str) -> str | None:
         """Delete a sync record and return the target event ID.
 
         Args:
@@ -121,27 +139,33 @@ class StateDB:
         """
         # First get the target event ID
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT target_event_id FROM synced_events
             WHERE source_calendar_id = ? AND source_event_id = ?
-        """, (source_calendar_id, source_event_id))
+        """,
+            (source_calendar_id, source_event_id),
+        )
 
         result = cursor.fetchone()
         if result:
             target_event_id = result[0]
 
             # Delete the record
-            cursor.execute("""
+            cursor.execute(
+                """
                 DELETE FROM synced_events
                 WHERE source_calendar_id = ? AND source_event_id = ?
-            """, (source_calendar_id, source_event_id))
+            """,
+                (source_calendar_id, source_event_id),
+            )
 
             self.conn.commit()
             return target_event_id
 
         return None
 
-    def get_all_synced_events(self, source_calendar_id: str) -> List[Tuple[str, str]]:
+    def get_all_synced_events(self, source_calendar_id: str) -> list[tuple[str, str]]:
         """Get all synced events for a source calendar.
 
         Args:
@@ -151,15 +175,18 @@ class StateDB:
             List of (source_event_id, target_event_id) tuples
         """
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT source_event_id, target_event_id
             FROM synced_events
             WHERE source_calendar_id = ?
-        """, (source_calendar_id,))
+        """,
+            (source_calendar_id,),
+        )
 
         return cursor.fetchall()
 
-    def get_by_target_event(self, target_event_id: str) -> Optional[Tuple[str, str]]:
+    def get_by_target_event(self, target_event_id: str) -> tuple[str, str] | None:
         """Check if a target event is already tracked.
 
         Args:
@@ -169,11 +196,14 @@ class StateDB:
             Tuple of (source_calendar_id, source_event_id) or None
         """
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT source_calendar_id, source_event_id
             FROM synced_events
             WHERE target_event_id = ?
-        """, (target_event_id,))
+        """,
+            (target_event_id,),
+        )
 
         result = cursor.fetchone()
         return result if result else None

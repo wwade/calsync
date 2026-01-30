@@ -37,27 +37,45 @@ The codebase follows a clean separation of concerns with three core modules:
 
 ### Setup
 ```bash
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
+# Install dependencies using uv (automatically creates virtual environment)
+uv sync
 
-# Install dependencies
-pip install -r requirements.txt
+# Or install development dependencies
+uv sync --dev
 ```
 
 ### Running
 ```bash
-# Basic sync
-./calsync.py
+# Using uv run (preferred - automatically uses project environment)
+uv run calsync
 
 # Dry run (see what would happen)
-./calsync.py --dry-run
+uv run calsync --dry-run
 
 # Verbose output
-./calsync.py --verbose
+uv run calsync --verbose
 
 # Custom config file
-./calsync.py --config my-config.yaml
+uv run calsync --config my-config.yaml
+
+# Or activate virtual environment and run directly
+source .venv/bin/activate
+calsync
+```
+
+### Linting & Formatting
+```bash
+# Check code with ruff (linter)
+uv run ruff check .
+
+# Auto-fix issues
+uv run ruff check --fix .
+
+# Format code
+uv run ruff format .
+
+# Check formatting without modifying
+uv run ruff format --check .
 ```
 
 ### Configuration

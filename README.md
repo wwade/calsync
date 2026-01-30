@@ -17,14 +17,12 @@ A Python tool to synchronize events from read-only (imported) Google calendars t
 ### 1. Install Dependencies
 
 ```bash
-# Create a virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate  # On Linux/Mac
-# or
-# venv\Scripts\activate  # On Windows
+# Install uv if not already installed
+# See: https://github.com/astral-sh/uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install required packages
-pip install -r requirements.txt
+# Install project dependencies (automatically creates virtual environment)
+uv sync
 ```
 
 ### 2. Set Up Google Calendar API Credentials
@@ -71,11 +69,8 @@ To find a calendar ID:
 ### 4. First Run
 
 ```bash
-# Make the script executable
-chmod +x calsync.py
-
 # Run the first sync
-./calsync.py
+uv run calsync
 ```
 
 On first run, you'll be prompted to authorize the application in your browser. This creates a `token.pickle` file for subsequent runs.
@@ -86,21 +81,43 @@ On first run, you'll be prompted to authorize the application in your browser. T
 
 ```bash
 # Basic sync
-./calsync.py
+uv run calsync
 
 # Use a different config file
-./calsync.py --config my-config.yaml
+uv run calsync --config my-config.yaml
 
 # Dry run (see what would be synced without making changes)
-./calsync.py --dry-run
+uv run calsync --dry-run
 
 # Verbose output
-./calsync.py --verbose
+uv run calsync --verbose
+
+# List available calendars
+uv run calsync --list-calendars
 ```
 
 ### Systemd Timer Setup
 
 For a more robust solution using systemd, see [SYSTEMD_SETUP.md](./SYSTEMD_SETUP.md).
+
+### Development
+
+```bash
+# Install development dependencies (includes ruff linter)
+uv sync --dev
+
+# Format code (auto-fix and format)
+make format
+
+# Check code formatting and linting (no changes)
+make check
+
+# Or use uv directly:
+uv run ruff check .              # Check for issues
+uv run ruff check --fix .        # Auto-fix issues
+uv run ruff format .             # Format code
+uv run ruff format --check .     # Check formatting without changes
+```
 
 ## How It Works
 

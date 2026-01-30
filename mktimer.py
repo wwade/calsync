@@ -2,21 +2,22 @@
 """Systemd timer setup"""
 
 import argparse
-from os import chdir, getcwd
-from subprocess import run
+from os import chdir
 from os.path import dirname, expanduser, realpath
 from pathlib import Path
-from sys import argv
 from shutil import copyfile
+from subprocess import run
+from sys import argv
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("venv", help="virtual env dir", action='store', nargs=1)
-    parser.add_argument("working_dir", help="working dir, default=script dir", nargs='?')
+    parser.add_argument("venv", help="virtual env dir", action="store", nargs=1)
+    parser.add_argument("working_dir", help="working dir, default=script dir", nargs="?")
     args = parser.parse_args()
 
     chdir(dirname(argv[0]))
-    with open("calsync.service", "r") as fp:
+    with open("calsync.service") as fp:
         data = fp.read()
 
     venv = realpath(expanduser(args.venv[0]))
@@ -26,10 +27,10 @@ def main():
     basedir = Path(expanduser("~/.config/systemd/user"))
     with (basedir / "calsync.service").open("w") as fp:
         fp.write(data)
-    
+
     for fn in ("calsync.timer", "calsync-failure@.service"):
-        copyfile(fn, basedir/fn)
-    
+        copyfile(fn, basedir / fn)
+
     run(["systemctl", "--user", "daemon-reload"], check=True)
     run(["systemctl", "--user", "enable", "calsync.timer"], check=True)
 
@@ -39,8 +40,5 @@ def main():
     run(["systemctl", "--user", "status", "calsync.timer"], check=True)
 
 
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-

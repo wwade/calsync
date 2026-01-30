@@ -1,0 +1,56 @@
+[project]
+name = "calsync"
+version = "0.1.0"
+description = "Synchronize events from read-only Google calendars to a personal calendar"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "google-api-python-client>=2.100.0",
+    "google-auth-httplib2>=0.1.1",
+    "google-auth-oauthlib>=1.1.0",
+    "pyyaml>=6.0",
+    "prettytable>=3.17.0",
+]
+
+[project.scripts]
+calsync = "calsync:main"
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["calsync", "calendar_api", "state_db", "sync_engine"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.14",
+]

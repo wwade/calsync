@@ -2,17 +2,16 @@
 
 import os
 import pickle
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from datetime import datetime
+from typing import Any
+
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-
 # Scopes required for reading and writing calendar events
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
 class CalendarAPI:
@@ -25,7 +24,7 @@ class CalendarAPI:
             credentials_file: Path to credentials.json file
         """
         self.credentials_file = credentials_file
-        self.token_file = 'token.pickle'
+        self.token_file = "token.pickle"
         self.service = None
         self._authenticate()
 
@@ -35,7 +34,7 @@ class CalendarAPI:
 
         # Load token from file if it exists
         if os.path.exists(self.token_file):
-            with open(self.token_file, 'rb') as token:
+            with open(self.token_file, "rb") as token:
                 creds = pickle.load(token)
 
         # If no valid credentials, let user log in
@@ -49,17 +48,18 @@ class CalendarAPI:
                         "Please download it from Google Cloud Console."
                     )
 
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    self.credentials_file, SCOPES)
+                flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, SCOPES)
                 creds = flow.run_local_server(port=0)
 
             # Save credentials for next run
-            with open(self.token_file, 'wb') as token:
+            with open(self.token_file, "wb") as token:
                 pickle.dump(creds, token)
 
-        self.service = build('calendar', 'v3', credentials=creds)
+        self.service = build("calendar", "v3", credentials=creds)
 
-    def get_events(self, calendar_id: str, time_min: datetime, time_max: datetime) -> List[Dict[str, Any]]:
+    def get_events(
+        self, calendar_id: str, time_min: datetime, time_max: datetime
+    ) -> list[dict[str, Any]]:
         """Get events from a calendar within a time range.
 
         Args:
@@ -73,24 +73,28 @@ class CalendarAPI:
         try:
             # Format datetime as RFC3339 with 'Z' suffix
             # Replace '+00:00' with 'Z' for proper UTC format
-            time_min_str = time_min.isoformat().replace('+00:00', 'Z')
-            time_max_str = time_max.isoformat().replace('+00:00', 'Z')
+            time_min_str = time_min.isoformat().replace("+00:00", "Z")
+            time_max_str = time_max.isoformat().replace("+00:00", "Z")
 
-            events_result = self.service.events().list(
-                calendarId=calendar_id,
-                timeMin=time_min_str,
-                timeMax=time_max_str,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
+            events_result = (
+                self.service.events()
+                .list(
+                    calendarId=calendar_id,
+                    timeMin=time_min_str,
+                    timeMax=time_max_str,
+                    singleEvents=True,
+                    orderBy="startTime",
+                )
+                .execute()
+            )
 
-            return events_result.get('items', [])
+            return events_result.get("items", [])
 
         except HttpError as error:
             print(f"Error fetching events from {calendar_id}: {error}")
             return []
 
-    def create_event(self, calendar_id: str, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def create_event(self, calendar_id: str, event_data: dict[str, Any]) -> dict[str, Any] | None:
         """Create a new event in a calendar.
 
         Args:
@@ -101,10 +105,7 @@ class CalendarAPI:
             Created event dictionary or None on failure
         """
         try:
-            event = self.service.events().insert(
-                calendarId=calendar_id,
-                body=event_data
-            ).execute()
+            event = self.service.events().insert(calendarId=calendar_id, body=event_data).execute()
 
             return event
 
@@ -112,7 +113,9 @@ class CalendarAPI:
             print(f"Error creating event: {error}")
             return None
 
-    def update_event(self, calendar_id: str, event_id: str, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update_event(
+        self, calendar_id: str, event_id: str, event_data: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Update an existing event.
 
         Args:
@@ -124,11 +127,11 @@ class CalendarAPI:
             Updated event dictionary or None on failure
         """
         try:
-            event = self.service.events().update(
-                calendarId=calendar_id,
-                eventId=event_id,
-                body=event_data
-            ).execute()
+            event = (
+                self.service.events()
+                .update(calendarId=calendar_id, eventId=event_id, body=event_data)
+                .execute()
+            )
 
             return event
 
@@ -147,10 +150,7 @@ class CalendarAPI:
             True on success, False on failure
         """
         try:
-            self.service.events().delete(
-                calendarId=calendar_id,
-                eventId=event_id
-            ).execute()
+            self.service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
 
             return True
 
@@ -158,7 +158,7 @@ class CalendarAPI:
             print(f"Error deleting event {event_id}: {error}")
             return False
 
-    def get_event(self, calendar_id: str, event_id: str) -> Optional[Dict[str, Any]]:
+    def get_event(self, calendar_id: str, event_id: str) -> dict[str, Any] | None:
         """Get a specific event by ID.
 
         Args:
@@ -169,10 +169,7 @@ class CalendarAPI:
             Event dictionary or None if not found
         """
         try:
-            event = self.service.events().get(
-                calendarId=calendar_id,
-                eventId=event_id
-            ).execute()
+            event = self.service.events().get(calendarId=calendar_id, eventId=event_id).execute()
 
             return event
 
@@ -182,7 +179,7 @@ class CalendarAPI:
             print(f"Error fetching event {event_id}: {error}")
             return None
 
-    def list_calendars(self) -> List[Dict[str, Any]]:
+    def list_calendars(self) -> list[dict[str, Any]]:
         """List all calendars accessible to the authenticated user.
 
         Returns:
@@ -190,7 +187,7 @@ class CalendarAPI:
         """
         try:
             calendar_list = self.service.calendarList().list().execute()
-            return calendar_list.get('items', [])
+            return calendar_list.get("items", [])
 
         except HttpError as error:
             print(f"Error listing calendars: {error}")
