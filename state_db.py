@@ -1,9 +1,9 @@
 """State database management for tracking synced events."""
 
-import os
-import sqlite3
 from datetime import datetime, timezone
+import os
 from pathlib import Path
+import sqlite3
 
 
 class StateDB:

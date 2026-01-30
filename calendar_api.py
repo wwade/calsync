@@ -1,8 +1,8 @@
 """Google Calendar API wrapper."""
 
+from datetime import datetime
 import os
 import pickle
-from datetime import datetime
 from typing import Any
 
 from google.auth.transport.requests import Request

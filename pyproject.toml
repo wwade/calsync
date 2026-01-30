@@ -45,6 +45,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["calsync", "calendar_api", "state_db", "sync_engine"]
+force-sort-within-sections = true
 
 [tool.ruff.format]
 quote-style = "double"

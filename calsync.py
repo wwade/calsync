@@ -5,8 +5,8 @@ import argparse
 import os
 import sys
 
-import yaml
 from prettytable import PrettyTable
+import yaml
 
 from calendar_api import CalendarAPI
 from state_db import StateDB
