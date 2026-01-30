@@ -100,7 +100,7 @@ On first run, you'll be prompted to authorize the application in your browser. T
 
 ### Systemd Timer Setup
 
-For a more robust solution using systemd, see SYSTEMD_SETUP.md.
+For a more robust solution using systemd, see [SYSTEMD_SETUP.md](./SYSTEMD_SETUP.md).
 
 ## How It Works
 
