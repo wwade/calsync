@@ -1,0 +1,366 @@
+"""Core sync engine for calendar synchronization."""
+
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Any, Optional
+from calendar_api import CalendarAPI
+from state_db import StateDB
+
+
+class SyncEngine:
+    """Handles synchronization logic between source and target calendars."""
+
+    def __init__(self, api: CalendarAPI, state_db: StateDB, config: Dict[str, Any], dry_run: bool = False):
+        """Initialize the sync engine.
+
+        Args:
+            api: CalendarAPI instance
+            state_db: StateDB instance
+            config: Configuration dictionary
+            dry_run: If True, only simulate changes without making them
+        """
+        self.api = api
+        self.state_db = state_db
+        self.config = config
+        self.target_calendar_id = config['target_calendar_id']
+        self.event_prefix = config['sync'].get('event_prefix', '')
+        self.sync_description = config['sync'].get('sync_description', True)
+        self.delete_on_source_delete = config['sync'].get('delete_on_source_delete', False)
+        self.dry_run = dry_run
+
+    def sync_calendar(self, source_name: str, source_calendar_id: str):
+        """Sync events from a source calendar to target calendar.
+
+        Args:
+            source_name: Human-readable name of source calendar
+            source_calendar_id: Source calendar ID
+        """
+        print(f"\nSyncing calendar: {source_name}")
+        print(f"  Source ID: {source_calendar_id}")
+
+        # Calculate time range
+        days_back = self.config['sync'].get('days_back', 7)
+        days_ahead = self.config['sync'].get('days_ahead', 90)
+        time_min = datetime.now(timezone.utc) - timedelta(days=days_back)
+        time_max = datetime.now(timezone.utc) + timedelta(days=days_ahead)
+
+        # Get events from source calendar
+        source_events = self.api.get_events(source_calendar_id, time_min, time_max)
+        print(f"  Found {len(source_events)} events in source calendar")
+
+        # Track statistics
+        stats = {
+            'created': 0,
+            'updated': 0,
+            'skipped': 0,
+            'deleted': 0
+        }
+
+        # Get all currently synced events for this calendar
+        synced_events = set(event_id for event_id, _ in self.state_db.get_all_synced_events(source_calendar_id))
+        current_source_event_ids = set()
+
+        # Process each source event
+        for source_event in source_events:
+            source_event_id = source_event['id']
+            current_source_event_ids.add(source_event_id)
+
+            # Check if event is already synced
+            sync_record = self.state_db.get_synced_event(source_calendar_id, source_event_id)
+
+            if sync_record:
+                # Event already synced, check if update needed
+                target_cal_id, target_event_id, last_synced = sync_record
+
+                # Get source event updated time
+                source_updated = self._get_updated_time(source_event)
+
+                if source_updated and source_updated > last_synced:
+                    # Event has been updated, sync the changes
+                    if self.dry_run:
+                        stats['updated'] += 1
+                        print(f"  [DRY RUN] Would update: {self._get_event_title(source_event)}")
+                    elif self._update_synced_event(source_event, target_event_id):
+                        self.state_db.record_sync(
+                            source_calendar_id, source_event_id,
+                            self.target_calendar_id, target_event_id,
+                            source_updated
+                        )
+                        stats['updated'] += 1
+                        print(f"  ✓ Updated: {self._get_event_title(source_event)}")
+                    else:
+                        stats['skipped'] += 1
+                else:
+                    stats['skipped'] += 1
+            else:
+                # New event, create it
+                if self.dry_run:
+                    stats['created'] += 1
+                    print(f"  [DRY RUN] Would create: {self._get_event_title(source_event)}")
+                else:
+                    target_event = self._create_synced_event(source_event)
+                    if target_event:
+                        target_event_id = target_event['id']
+                        source_updated = self._get_updated_time(source_event)
+
+                        self.state_db.record_sync(
+                            source_calendar_id, source_event_id,
+                            self.target_calendar_id, target_event_id,
+                            source_updated
+                        )
+                        stats['created'] += 1
+                        print(f"  + Created: {self._get_event_title(source_event)}")
+                    else:
+                        stats['skipped'] += 1
+
+        # Handle deleted events
+        if self.delete_on_source_delete:
+            deleted_events = synced_events - current_source_event_ids
+            for deleted_event_id in deleted_events:
+                if self.dry_run:
+                    # In dry-run mode, just peek at what would be deleted
+                    sync_record = self.state_db.get_synced_event(source_calendar_id, deleted_event_id)
+                    if sync_record:
+                        stats['deleted'] += 1
+                        print(f"  [DRY RUN] Would delete: event {deleted_event_id}")
+                else:
+                    target_event_id = self.state_db.delete_sync_record(source_calendar_id, deleted_event_id)
+                    if target_event_id:
+                        if self.api.delete_event(self.target_calendar_id, target_event_id):
+                            stats['deleted'] += 1
+                            print(f"  - Deleted: event {deleted_event_id}")
+
+        # Print summary
+        print(f"\n  Summary:")
+        print(f"    Created: {stats['created']}")
+        print(f"    Updated: {stats['updated']}")
+        print(f"    Skipped: {stats['skipped']}")
+        if self.delete_on_source_delete:
+            print(f"    Deleted: {stats['deleted']}")
+
+    def reconcile_calendar(self, source_name: str, source_calendar_id: str):
+        """Reconcile existing events in target calendar with source events.
+
+        This is useful when the database is not initialized but events already exist
+        in the target calendar. It will detect matching events and record them in
+        the database to avoid creating duplicates.
+
+        Args:
+            source_name: Human-readable name of source calendar
+            source_calendar_id: Source calendar ID
+        """
+        print(f"\nReconciling calendar: {source_name}")
+        print(f"  Source ID: {source_calendar_id}")
+
+        # Calculate time range
+        days_back = self.config['sync'].get('days_back', 7)
+        days_ahead = self.config['sync'].get('days_ahead', 90)
+        time_min = datetime.now(timezone.utc) - timedelta(days=days_back)
+        time_max = datetime.now(timezone.utc) + timedelta(days=days_ahead)
+
+        # Get events from source calendar
+        source_events = self.api.get_events(source_calendar_id, time_min, time_max)
+        print(f"  Found {len(source_events)} events in source calendar")
+
+        # Get events from target calendar
+        target_events = self.api.get_events(self.target_calendar_id, time_min, time_max)
+        print(f"  Found {len(target_events)} events in target calendar")
+
+        # Build lookup table for target events
+        # Key: (summary, start, end) -> event
+        target_lookup = {}
+        for target_event in target_events:
+            key = self._build_event_key(target_event)
+            if key:
+                target_lookup[key] = target_event
+
+        # Track statistics
+        stats = {
+            'reconciled': 0,
+            'already_tracked': 0,
+            'not_found': 0,
+            'target_already_mapped': 0
+        }
+
+        # Try to match each source event with target events
+        for source_event in source_events:
+            source_event_id = source_event['id']
+
+            # Check if already tracked in database
+            sync_record = self.state_db.get_synced_event(source_calendar_id, source_event_id)
+            if sync_record:
+                stats['already_tracked'] += 1
+                continue
+
+            # Build expected event data and key
+            expected_event_data = self._build_event_data(source_event)
+            expected_key = self._build_event_key_from_data(expected_event_data)
+
+            if expected_key and expected_key in target_lookup:
+                target_event = target_lookup[expected_key]
+                target_event_id = target_event['id']
+
+                # Check if this target event is already mapped to another source event
+                existing_mapping = self.state_db.get_by_target_event(target_event_id)
+                if existing_mapping:
+                    stats['target_already_mapped'] += 1
+                    print(f"  ⚠ Target event already mapped: {self._get_event_title(target_event)}")
+                    continue
+
+                # Record the mapping
+                source_updated = self._get_updated_time(source_event)
+                if self.dry_run:
+                    stats['reconciled'] += 1
+                    print(f"  [DRY RUN] Would reconcile: {self._get_event_title(source_event)}")
+                else:
+                    self.state_db.record_sync(
+                        source_calendar_id, source_event_id,
+                        self.target_calendar_id, target_event_id,
+                        source_updated
+                    )
+                    stats['reconciled'] += 1
+                    print(f"  ✓ Reconciled: {self._get_event_title(source_event)}")
+            else:
+                stats['not_found'] += 1
+
+        # Print summary
+        print(f"\n  Summary:")
+        print(f"    Reconciled: {stats['reconciled']}")
+        print(f"    Already tracked: {stats['already_tracked']}")
+        print(f"    Not found in target: {stats['not_found']}")
+        if stats['target_already_mapped'] > 0:
+            print(f"    Target already mapped: {stats['target_already_mapped']}")
+
+    def _create_synced_event(self, source_event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Create a new event in target calendar from source event.
+
+        Args:
+            source_event: Source event dictionary
+
+        Returns:
+            Created event dictionary or None on failure
+        """
+        event_data = self._build_event_data(source_event)
+        return self.api.create_event(self.target_calendar_id, event_data)
+
+    def _update_synced_event(self, source_event: Dict[str, Any], target_event_id: str) -> bool:
+        """Update an existing synced event.
+
+        Args:
+            source_event: Source event dictionary
+            target_event_id: Target event ID to update
+
+        Returns:
+            True on success, False on failure
+        """
+        event_data = self._build_event_data(source_event)
+        result = self.api.update_event(self.target_calendar_id, target_event_id, event_data)
+        return result is not None
+
+    def _build_event_data(self, source_event: Dict[str, Any]) -> Dict[str, Any]:
+        """Build event data for creating/updating in target calendar.
+
+        Args:
+            source_event: Source event dictionary
+
+        Returns:
+            Event data dictionary
+        """
+        # Start with basic structure
+        event_data = {
+            'summary': self.event_prefix + source_event.get('summary', 'Untitled Event'),
+            'start': source_event['start'],
+            'end': source_event['end'],
+        }
+
+        # Add description if enabled
+        if self.sync_description and 'description' in source_event:
+            event_data['description'] = source_event['description']
+
+        # Add location if present
+        if 'location' in source_event:
+            event_data['location'] = source_event['location']
+
+        # Copy other relevant fields
+        if 'visibility' in source_event:
+            event_data['visibility'] = source_event['visibility']
+
+        return event_data
+
+    def _get_event_title(self, event: Dict[str, Any]) -> str:
+        """Get event title for display.
+
+        Args:
+            event: Event dictionary
+
+        Returns:
+            Event title
+        """
+        return event.get('summary', 'Untitled Event')
+
+    def _get_updated_time(self, event: Dict[str, Any]) -> Optional[datetime]:
+        """Get the last updated time of an event.
+
+        Args:
+            event: Event dictionary
+
+        Returns:
+            Updated datetime or None
+        """
+        updated_str = event.get('updated')
+        if updated_str:
+            # Parse ISO format datetime
+            # Google returns format like '2024-01-29T10:30:00.000Z'
+            return datetime.fromisoformat(updated_str.replace('Z', '+00:00'))
+        return None
+
+    def _build_event_key(self, event: Dict[str, Any]) -> Optional[tuple]:
+        """Build a key for matching events.
+
+        Args:
+            event: Event dictionary
+
+        Returns:
+            Tuple of (summary, start_datetime, end_datetime) or None if key cannot be built
+        """
+        summary = event.get('summary')
+        start = event.get('start')
+        end = event.get('end')
+
+        if not summary or not start or not end:
+            return None
+
+        # Parse datetime strings into timezone-aware datetime objects normalized to UTC
+        start_str = start.get('dateTime') or start.get('date')
+        end_str = end.get('dateTime') or end.get('date')
+
+        # Parse and normalize to UTC for consistent comparison
+        start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00')).astimezone(timezone.utc)
+        end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00')).astimezone(timezone.utc)
+
+        return (summary, start_dt, end_dt)
+
+    def _build_event_key_from_data(self, event_data: Dict[str, Any]) -> Optional[tuple]:
+        """Build a key from event data (as created by _build_event_data).
+
+        Args:
+            event_data: Event data dictionary
+
+        Returns:
+            Tuple of (summary, start_datetime, end_datetime) or None if key cannot be built
+        """
+        summary = event_data.get('summary')
+        start = event_data.get('start')
+        end = event_data.get('end')
+
+        if not summary or not start or not end:
+            return None
+
+        # Parse datetime strings into timezone-aware datetime objects normalized to UTC
+        start_str = start.get('dateTime') or start.get('date')
+        end_str = end.get('dateTime') or end.get('date')
+
+        # Parse and normalize to UTC for consistent comparison
+        start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00')).astimezone(timezone.utc)
+        end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00')).astimezone(timezone.utc)
+
+        return (summary, start_dt, end_dt)

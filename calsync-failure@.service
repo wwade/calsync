@@ -1,0 +1,14 @@
+[Unit]
+Description=Calendar Sync Failure Notification
+After=%i
+
+[Service]
+Type=oneshot
+# Send desktop notification on failure
+ExecStart=/usr/bin/notify-send -u critical "Calendar Sync Failed" "The calsync service has failed. Check logs with: journalctl -u calsync.service"
+
+# Alternative: Send email (uncomment and configure)
+# ExecStart=/usr/bin/mail -s "Calendar Sync Failed on $(hostname)" your-email@example.com
+
+[Install]
+WantedBy=multi-user.target

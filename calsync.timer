@@ -1,0 +1,17 @@
+[Unit]
+Description=Daily Calendar Sync Timer
+Requires=calsync.service
+
+[Timer]
+# Run daily at 9 AM
+OnCalendar=daily
+OnCalendar=09:00
+
+# Run immediately if the last trigger was missed (computer was off/suspended)
+Persistent=true
+
+# Randomize start time by up to 5 minutes to avoid thundering herd
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

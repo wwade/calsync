@@ -1,0 +1,37 @@
+# Configuration for calsync
+# Copy this to config.yaml and customize
+
+# Path to Google Calendar API credentials
+credentials_file: "credentials.json"
+
+# Path to state database
+state_db: "~/.local/share/calsync/sync_state.db"
+
+# Your personal calendar ID (usually your email address)
+# Leave as "primary" to use your primary calendar
+target_calendar_id: "primary"
+
+# Source calendars to sync from (read-only calendars)
+source_calendars:
+  - name: "Evolution Sport Therapy Appointments"
+    calendar_id: "your-calendar-id@group.calendar.google.com"
+  # Add more source calendars here
+  # - name: "Another Calendar"
+  #   calendar_id: "another-id@group.calendar.google.com"
+
+# Sync settings
+sync:
+  # How many days ahead to sync
+  days_ahead: 90
+
+  # How many days back to sync (for catching updates)
+  days_back: 7
+
+  # Prefix to add to copied events
+  event_prefix: "[Synced] "
+
+  # Whether to sync event descriptions
+  sync_description: true
+
+  # Whether to delete copied events when source is deleted
+  delete_on_source_delete: false

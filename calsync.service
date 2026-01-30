@@ -1,0 +1,22 @@
+[Unit]
+Description=Calendar Sync Service
+After=network-online.target
+Wants=network-online.target
+OnFailure=calsync-failure@%n.service
+
+[Service]
+Type=oneshot
+WorkingDirectory={DIR}
+ExecStart={VENV}/bin/python3 calsync.py
+StandardOutput=journal
+StandardError=journal
+
+# Restart behavior
+Restart=no
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
