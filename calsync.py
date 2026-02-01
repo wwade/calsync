@@ -153,9 +153,6 @@ def main():
     # Load configuration
     config = load_config(args.config)
 
-    # Initialize components
-    print("Initializing Calendar Sync...")
-
     # Check if credentials file exists
     credentials_file = config.get("credentials_file", "credentials.json")
     if not os.path.exists(credentials_file):
@@ -188,9 +185,6 @@ def main():
             print("Please add source calendars to your config.yaml file.")
             sys.exit(0)
 
-        print(f"\nTarget calendar: {config['target_calendar_id']}")
-        print(f"Number of source calendars: {len(source_calendars)}")
-
         for source_cal in source_calendars:
             name = source_cal["name"]
             calendar_id = source_cal["calendar_id"]
@@ -198,11 +192,6 @@ def main():
                 sync_engine.reconcile_calendar(name, calendar_id)
             else:
                 sync_engine.sync_calendar(name, calendar_id)
-
-        if args.reconcile:
-            print("\n✓ Reconcile complete!")
-        else:
-            print("\n✓ Sync complete!")
 
         # Clean up
         state_db.close()
