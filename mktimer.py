@@ -5,39 +5,63 @@ import argparse
 from os import chdir
 from os.path import dirname, expanduser, realpath
 from pathlib import Path
-from shutil import copyfile
+from shlex import join
+from shutil import copyfile, which
 from subprocess import run
+import sys
 from sys import argv
 
 
+def prun(cmd: list[str], check: bool = True) -> None:
+    print("+", join(cmd))
+    run(cmd, check=check)
+
+
 def main():
+    default_wd = dirname(argv[0])
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("venv", help="virtual env dir", action="store", nargs=1)
-    parser.add_argument("working_dir", help="working dir, default=script dir", nargs="?")
+    parser.add_argument(
+        "working_dir",
+        help="working dir, default=%(default)s",
+        default=default_wd,
+        nargs="?",
+    )
+    parser.add_argument("--uv", help="override uv path")
     args = parser.parse_args()
+
+    if not (uv := args.uv):
+        uv = which("uv")
+        if not uv:
+            sys.exit("Unable to locate 'uv' executable. Specify with --uv")
+        uv = realpath(uv)
 
     chdir(dirname(argv[0]))
     with open("calsync.service") as fp:
         data = fp.read()
 
-    venv = realpath(expanduser(args.venv[0]))
-    wd = realpath(expanduser(args.working_dir) if args.working_dir else dirname(argv[0]))
-    data = data.format(VENV=venv, DIR=wd)
+    wd = realpath(expanduser(args.working_dir))
+    data = data.format(DIR=wd, UV=uv)
 
     basedir = Path(expanduser("~/.config/systemd/user"))
     with (basedir / "calsync.service").open("w") as fp:
+        print("writing", fp.name)
         fp.write(data)
 
     for fn in ("calsync.timer", "calsync-failure@.service"):
-        copyfile(fn, basedir / fn)
+        dest = basedir / fn
+        print("copy", fn, "->", dest)
+        copyfile(fn, dest)
 
-    run(["systemctl", "--user", "daemon-reload"], check=True)
-    run(["systemctl", "--user", "enable", "calsync.timer"], check=True)
+    prun(["systemctl", "--user", "daemon-reload"])
+    prun(["systemctl", "--user", "enable", "calsync.timer"])
 
-    print("# Enable lingering so the timer runs even when you're not logged in")
+    prun(["systemctl", "--user", "status", "calsync.timer"], check=False)
+
+    print("-" * 65)
+    print("setup complete.")
+    print("To enable lingering so the timer runs even when you're not logged in, run:")
     print("sudo loginctl enable-linger $USER")
-
-    run(["systemctl", "--user", "status", "calsync.timer"], check=True)
 
 
 if __name__ == "__main__":

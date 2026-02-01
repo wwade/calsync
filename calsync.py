@@ -3,14 +3,52 @@
 
 import argparse
 import os
+from socket import gaierror
 import sys
 
 from prettytable import PrettyTable
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+from urllib3.exceptions import NameResolutionError, NewConnectionError
 import yaml
 
 from calendar_api import CalendarAPI
 from state_db import StateDB
 from sync_engine import SyncEngine
+
+
+def _log_retry_attempt(retry_state):
+    """Log retry attempts for network failures."""
+    print(
+        f"Network error occurred (attempt {retry_state.attempt_number}/5): "
+        f"{retry_state.outcome.exception()}"
+    )
+    print(f"Retrying in {retry_state.next_action.sleep} seconds...")
+
+
+@retry(
+    retry=retry_if_exception_type((gaierror, NameResolutionError, NewConnectionError, OSError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=4, max=60),
+    before_sleep=_log_retry_attempt,
+)
+def initialize_calendar_api(credentials_file: str) -> CalendarAPI:
+    """Initialize CalendarAPI with retry logic for network failures.
+
+    Args:
+        credentials_file: Path to credentials file
+
+    Returns:
+        Initialized CalendarAPI instance
+
+    Raises:
+        Exception: If initialization fails after all retry attempts
+    """
+    return CalendarAPI(credentials_file)
 
 
 def load_config(config_path: str) -> dict:
@@ -84,7 +122,7 @@ def main():
             sys.exit(1)
 
         try:
-            api = CalendarAPI(credentials_file)
+            api = initialize_calendar_api(credentials_file)
             calendars = api.list_calendars()
 
             if not calendars:
@@ -132,7 +170,7 @@ def main():
         sys.exit(1)
 
     try:
-        api = CalendarAPI(credentials_file)
+        api = initialize_calendar_api(credentials_file)
         state_db = StateDB(config.get("state_db", "~/.local/share/calsync/sync_state.db"))
         sync_engine = SyncEngine(api, state_db, config, dry_run=args.dry_run)
 

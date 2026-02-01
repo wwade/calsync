@@ -3,16 +3,19 @@ Description=Calendar Sync Service
 After=network-online.target
 Wants=network-online.target
 OnFailure=calsync-failure@%n.service
+# StartLimitBurst=3
+# StartLimitIntervalSec=300
 
 [Service]
 Type=oneshot
 WorkingDirectory={DIR}
-ExecStart={VENV}/bin/python3 calsync.py
+ExecStart={UV} run calsync
 StandardOutput=journal
 StandardError=journal
 
-# Restart behavior
-Restart=no
+# # Restart behavior - retry on failure (e.g., network not ready after suspend)
+# Restart=on-failure
+# RestartSec=30
 
 # Security hardening
 NoNewPrivileges=true
