@@ -37,9 +37,6 @@ class SyncEngine:
             source_name: Human-readable name of source calendar
             source_calendar_id: Source calendar ID
         """
-        print(f"\nSyncing calendar: {source_name}")
-        print(f"  Source ID: {source_calendar_id}")
-
         # Calculate time range
         days_back = self.config["sync"].get("days_back", 7)
         days_ahead = self.config["sync"].get("days_ahead", 90)
@@ -48,7 +45,6 @@ class SyncEngine:
 
         # Get events from source calendar
         source_events = self.api.get_events(source_calendar_id, time_min, time_max)
-        print(f"  Found {len(source_events)} events in source calendar")
 
         # Track statistics
         stats = {"created": 0, "updated": 0, "skipped": 0, "deleted": 0}
@@ -69,7 +65,7 @@ class SyncEngine:
 
             if sync_record:
                 # Event already synced, check if update needed
-                target_cal_id, target_event_id, last_synced = sync_record
+                _, target_event_id, last_synced = sync_record
 
                 # Get source event updated time
                 source_updated = self._get_updated_time(source_event)
@@ -78,7 +74,9 @@ class SyncEngine:
                     # Event has been updated, sync the changes
                     if self.dry_run:
                         stats["updated"] += 1
-                        print(f"  [DRY RUN] Would update: {self._get_event_title(source_event)}")
+                        date_str = self._format_event_datetime(source_event)
+                        title = self._get_event_title(source_event)
+                        print(f'  [DRY RUN] Would update event Date={date_str} "{title}"')
                     elif self._update_synced_event(source_event, target_event_id):
                         self.state_db.record_sync(
                             source_calendar_id,
@@ -88,7 +86,9 @@ class SyncEngine:
                             source_updated,
                         )
                         stats["updated"] += 1
-                        print(f"  ✓ Updated: {self._get_event_title(source_event)}")
+                        date_str = self._format_event_datetime(source_event)
+                        title = self._get_event_title(source_event)
+                        print(f'Updated event Date={date_str} "{title}"')
                     else:
                         stats["skipped"] += 1
                 else:
@@ -97,7 +97,9 @@ class SyncEngine:
                 # New event, create it
                 if self.dry_run:
                     stats["created"] += 1
-                    print(f"  [DRY RUN] Would create: {self._get_event_title(source_event)}")
+                    date_str = self._format_event_datetime(source_event)
+                    title = self._get_event_title(source_event)
+                    print(f'  [DRY RUN] Would create event Date={date_str} "{title}"')
                 else:
                     target_event = self._create_synced_event(source_event)
                     if target_event:
@@ -112,7 +114,9 @@ class SyncEngine:
                             source_updated,
                         )
                         stats["created"] += 1
-                        print(f"  + Created: {self._get_event_title(source_event)}")
+                        date_str = self._format_event_datetime(source_event)
+                        title = self._get_event_title(source_event)
+                        print(f'Added event Date={date_str} "{title}"')
                     else:
                         stats["skipped"] += 1
 
@@ -127,8 +131,31 @@ class SyncEngine:
                     )
                     if sync_record:
                         stats["deleted"] += 1
-                        print(f"  [DRY RUN] Would delete: event {deleted_event_id}")
+                        # Try to get event details for display
+                        _, target_event_id, _ = sync_record
+                        target_event = self.api.get_event(self.target_calendar_id, target_event_id)
+                        if target_event:
+                            date_str = self._format_event_datetime(target_event)
+                            title = self._get_event_title(target_event)
+                            print(f'  [DRY RUN] Would delete event Date={date_str} "{title}"')
+                        else:
+                            print(f"  [DRY RUN] Would delete event ID={deleted_event_id}")
                 else:
+                    # Get event details before deleting
+                    sync_record = self.state_db.get_synced_event(
+                        source_calendar_id, deleted_event_id
+                    )
+                    event_info = None
+                    if sync_record:
+                        _, target_event_id, _ = sync_record
+                        target_event = self.api.get_event(self.target_calendar_id, target_event_id)
+                        if target_event:
+                            date_str = self._format_event_datetime(target_event)
+                            title = self._get_event_title(target_event)
+                            event_info = f'Date={date_str} "{title}"'
+                        else:
+                            event_info = f"ID={deleted_event_id}"
+
                     target_event_id = self.state_db.delete_sync_record(
                         source_calendar_id, deleted_event_id
                     )
@@ -136,15 +163,18 @@ class SyncEngine:
                         self.target_calendar_id, target_event_id
                     ):
                         stats["deleted"] += 1
-                        print(f"  - Deleted: event {deleted_event_id}")
+                        if event_info:
+                            print(f"Deleted event {event_info}")
+                        else:
+                            print(f"Deleted event ID={deleted_event_id}")
 
         # Print summary
-        print("\n  Summary:")
-        print(f"    Created: {stats['created']}")
-        print(f"    Updated: {stats['updated']}")
-        print(f"    Skipped: {stats['skipped']}")
-        if self.delete_on_source_delete:
-            print(f"    Deleted: {stats['deleted']}")
+        deleted_str = f" Deleted={stats['deleted']}" if self.delete_on_source_delete else ""
+        print(
+            f"Created={stats['created']} Updated={stats['updated']} "
+            f"Skipped={stats['skipped']}{deleted_str} "
+            f'Calendar="{source_name}" ID={source_calendar_id}'
+        )
 
     def reconcile_calendar(self, source_name: str, source_calendar_id: str):
         """Reconcile existing events in target calendar with source events.
@@ -157,9 +187,6 @@ class SyncEngine:
             source_name: Human-readable name of source calendar
             source_calendar_id: Source calendar ID
         """
-        print(f"\nReconciling calendar: {source_name}")
-        print(f"  Source ID: {source_calendar_id}")
-
         # Calculate time range
         days_back = self.config["sync"].get("days_back", 7)
         days_ahead = self.config["sync"].get("days_ahead", 90)
@@ -168,11 +195,9 @@ class SyncEngine:
 
         # Get events from source calendar
         source_events = self.api.get_events(source_calendar_id, time_min, time_max)
-        print(f"  Found {len(source_events)} events in source calendar")
 
         # Get events from target calendar
         target_events = self.api.get_events(self.target_calendar_id, time_min, time_max)
-        print(f"  Found {len(target_events)} events in target calendar")
 
         # Build lookup table for target events
         # Key: (summary, start, end) -> event
@@ -207,14 +232,15 @@ class SyncEngine:
                 existing_mapping = self.state_db.get_by_target_event(target_event_id)
                 if existing_mapping:
                     stats["target_already_mapped"] += 1
-                    print(f"  ⚠ Target event already mapped: {self._get_event_title(target_event)}")
                     continue
 
                 # Record the mapping
                 source_updated = self._get_updated_time(source_event)
                 if self.dry_run:
                     stats["reconciled"] += 1
-                    print(f"  [DRY RUN] Would reconcile: {self._get_event_title(source_event)}")
+                    date_str = self._format_event_datetime(source_event)
+                    title = self._get_event_title(source_event)
+                    print(f'  [DRY RUN] Would reconcile event Date={date_str} "{title}"')
                 else:
                     self.state_db.record_sync(
                         source_calendar_id,
@@ -224,17 +250,23 @@ class SyncEngine:
                         source_updated,
                     )
                     stats["reconciled"] += 1
-                    print(f"  ✓ Reconciled: {self._get_event_title(source_event)}")
+                    date_str = self._format_event_datetime(source_event)
+                    title = self._get_event_title(source_event)
+                    print(f'Reconciled event Date={date_str} "{title}"')
             else:
                 stats["not_found"] += 1
 
         # Print summary
-        print("\n  Summary:")
-        print(f"    Reconciled: {stats['reconciled']}")
-        print(f"    Already tracked: {stats['already_tracked']}")
-        print(f"    Not found in target: {stats['not_found']}")
-        if stats["target_already_mapped"] > 0:
-            print(f"    Target already mapped: {stats['target_already_mapped']}")
+        target_mapped_str = (
+            f" TargetAlreadyMapped={stats['target_already_mapped']}"
+            if stats["target_already_mapped"] > 0
+            else ""
+        )
+        print(
+            f"Reconciled={stats['reconciled']} AlreadyTracked={stats['already_tracked']} "
+            f"NotFoundInTarget={stats['not_found']}{target_mapped_str} "
+            f'Calendar="{source_name}" ID={source_calendar_id}'
+        )
 
     def _create_synced_event(self, source_event: dict[str, Any]) -> dict[str, Any] | None:
         """Create a new event in target calendar from source event.
@@ -302,6 +334,35 @@ class SyncEngine:
             Event title
         """
         return event.get("summary", "Untitled Event")
+
+    def _format_event_datetime(self, event: dict[str, Any]) -> str:
+        """Format event datetime for display.
+
+        Args:
+            event: Event dictionary
+
+        Returns:
+            Formatted datetime string like "2026-01-30 13:30 (-08:00)"
+        """
+        start = event.get("start", {})
+        start_str = start.get("dateTime") or start.get("date")
+
+        if not start_str:
+            return "Unknown date"
+
+        # Parse the datetime
+        dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+
+        # Format the output
+        if start.get("dateTime"):
+            # Has time component - show date, time, and timezone offset
+            tz_offset = dt.strftime("%z")
+            # Format offset as (-HH:MM)
+            tz_formatted = f"({tz_offset[:3]}:{tz_offset[3:]})" if tz_offset else "(+00:00)"
+            return dt.strftime(f"%Y-%m-%d %H:%M {tz_formatted}")
+        else:
+            # All-day event - just show date
+            return dt.strftime("%Y-%m-%d")
 
     def _get_updated_time(self, event: dict[str, Any]) -> datetime | None:
         """Get the last updated time of an event.
