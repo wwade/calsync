@@ -3,9 +3,7 @@ Description=Daily Calendar Sync Timer
 Requires=calsync.service
 
 [Timer]
-# Run daily at 9 AM
-OnCalendar=daily
-OnCalendar=09:00
+OnCalendar=hourly
 
 # Run immediately if the last trigger was missed (computer was off/suspended)
 Persistent=true

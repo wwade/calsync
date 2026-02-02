@@ -169,12 +169,7 @@ class SyncEngine:
                             print(f"Deleted event ID={deleted_event_id}")
 
         # Print summary
-        deleted_str = f" Deleted={stats['deleted']}" if self.delete_on_source_delete else ""
-        print(
-            f"Created={stats['created']} Updated={stats['updated']} "
-            f"Skipped={stats['skipped']}{deleted_str} "
-            f'Calendar="{source_name}" ID={source_calendar_id}'
-        )
+        self._print_stats_summary(stats, source_name, source_calendar_id)
 
     def reconcile_calendar(self, source_name: str, source_calendar_id: str):
         """Reconcile existing events in target calendar with source events.
@@ -257,16 +252,7 @@ class SyncEngine:
                 stats["not_found"] += 1
 
         # Print summary
-        target_mapped_str = (
-            f" TargetAlreadyMapped={stats['target_already_mapped']}"
-            if stats["target_already_mapped"] > 0
-            else ""
-        )
-        print(
-            f"Reconciled={stats['reconciled']} AlreadyTracked={stats['already_tracked']} "
-            f"NotFoundInTarget={stats['not_found']}{target_mapped_str} "
-            f'Calendar="{source_name}" ID={source_calendar_id}'
-        )
+        self._print_stats_summary(stats, source_name, source_calendar_id)
 
     def _create_synced_event(self, source_event: dict[str, Any]) -> dict[str, Any] | None:
         """Create a new event in target calendar from source event.
@@ -379,6 +365,41 @@ class SyncEngine:
             # Google returns format like '2024-01-29T10:30:00.000Z'
             return datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
         return None
+
+    def _print_stats_summary(
+        self, stats: dict[str, int], source_name: str, source_calendar_id: str
+    ):
+        """Print formatted stats summary, skipping zero values.
+
+        Args:
+            stats: Statistics dictionary
+            source_name: Human-readable name of source calendar
+            source_calendar_id: Source calendar ID
+        """
+        # Map stat keys to display names
+        stat_display_names = {
+            "created": "Created",
+            "updated": "Updated",
+            "skipped": "Skipped",
+            "deleted": "Deleted",
+            "reconciled": "Reconciled",
+            "already_tracked": "AlreadyTracked",
+            "not_found": "NotFoundInTarget",
+            "target_already_mapped": "TargetAlreadyMapped",
+        }
+
+        # Build list of non-zero stats
+        non_zero_stats = []
+        for key, value in stats.items():
+            if value > 0 and key in stat_display_names:
+                display_name = stat_display_names[key]
+                non_zero_stats.append(f"{display_name}={value}")
+
+        # Format prefix: either non-zero stats or "<No entries>"
+        stats_str = " ".join(non_zero_stats) if non_zero_stats else "<No entries>"
+
+        # Print with calendar info
+        print(f'{stats_str} Calendar="{source_name}" ID={source_calendar_id}')
 
     def _build_event_key(self, event: dict[str, Any]) -> tuple | None:
         """Build a key for matching events.
