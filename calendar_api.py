@@ -2,13 +2,15 @@
 
 from datetime import datetime
 import os
-import pickle
+from pathlib import Path
 from typing import Any
 
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from platformdirs import user_cache_dir
 
 # Scopes required for reading and writing calendar events
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
@@ -24,7 +26,7 @@ class CalendarAPI:
             credentials_file: Path to credentials.json file
         """
         self.credentials_file = credentials_file
-        self.token_file = "token.pickle"
+        self.token_path = Path(user_cache_dir("calsync")) / "token.json"
         self.service = None
         self._authenticate()
 
@@ -33,15 +35,20 @@ class CalendarAPI:
         creds = None
 
         # Load token from file if it exists
-        if os.path.exists(self.token_file):
-            with open(self.token_file, "rb") as token:
-                creds = pickle.load(token)
+        if self.token_path.is_file():
+            creds = Credentials.from_authorized_user_file(self.token_path)
 
         # If no valid credentials, let user log in
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
+                try:
+                    creds.refresh(Request())
+                except Exception as e:
+                    # Refresh token is invalid/expired - need to re-authenticate
+                    print(f"Token refresh failed ({e}), re-authenticating...")
+                    creds = None
+
+            if not creds:
                 if not os.path.exists(self.credentials_file):
                     raise FileNotFoundError(
                         f"Credentials file not found: {self.credentials_file}\n"
@@ -52,8 +59,10 @@ class CalendarAPI:
                 creds = flow.run_local_server(port=0)
 
             # Save credentials for next run
-            with open(self.token_file, "wb") as token:
-                pickle.dump(creds, token)
+            tmp = self.token_path.with_suffix(".tmp")
+            tmp.write_text(creds.to_json(), encoding="utf-8")
+            tmp.chmod(0o600)
+            tmp.replace(self.token_path)
 
         self.service = build("calendar", "v3", credentials=creds)
 
