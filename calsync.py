@@ -2,6 +2,7 @@
 """Calendar synchronization tool for Google Calendar."""
 
 import argparse
+from json import dumps
 import os
 from socket import gaierror
 import sys
@@ -91,16 +92,23 @@ def main():
         action="store_true",
         help="Reconcile mode: detect and record existing events in target calendar that match source events",
     )
-    parser.add_argument(
+    ex = parser.add_mutually_exclusive_group()
+    ex.add_argument(
         "--list-calendars",
         action="store_true",
         help="List all available calendars with their IDs and exit",
+    )
+    ex.add_argument(
+        "--json-list-calendars",
+        action="store_true",
+        help="List all available calendars in JSON format",
     )
 
     args = parser.parse_args()
 
     # Handle --list-calendars mode (doesn't require config file)
-    if args.list_calendars:
+    if args.list_calendars or args.json_list_calendars:
+        use_json = args.json_list_calendars
         # Try to load config to get credentials file path, but don't require it
         try:
             if os.path.exists(args.config):
@@ -124,11 +132,24 @@ def main():
         try:
             api = initialize_calendar_api(credentials_file)
             calendars = api.list_calendars()
+        except Exception as e:
+            print(f"Error listing calendars: {e}")
+            sys.exit(1)
 
-            if not calendars:
-                print("No calendars found.")
-                sys.exit(0)
+        if not calendars:
+            print("[]" if use_json else "No calendars found.")
+            sys.exit(0)
 
+        if use_json:
+            data = []
+            for cal in calendars:
+                entry = {}
+                for key in ("id", "summary", "accessRole"):
+                    if key in cal:
+                        entry[key] = cal[key]
+                data.append(entry)
+            print(dumps(data, indent=2))
+        else:
             print("\nAvailable Calendars:")
             tbl = PrettyTable(("name", "ID", "access"))
             tbl.align = "l"
@@ -143,10 +164,6 @@ def main():
             print(tbl)
             print(f"Total: {len(calendars)} calendar(s)")
             print("\nUse these IDs in your config.yaml file.")
-
-        except Exception as e:
-            print(f"Error listing calendars: {e}")
-            sys.exit(1)
 
         sys.exit(0)
 
