@@ -3,6 +3,7 @@
 from datetime import datetime
 import os
 from pathlib import Path
+import sys
 from typing import Any
 
 from google.auth.transport.requests import Request
@@ -53,6 +54,13 @@ class CalendarAPI:
                     raise FileNotFoundError(
                         f"Credentials file not found: {self.credentials_file}\n"
                         "Please download it from Google Cloud Console."
+                    )
+
+                # Check if running in non-interactive environment (e.g., systemd service)
+                if not sys.stdout.isatty():
+                    raise RuntimeError(
+                        "Authentication required but running in non-interactive environment.\n"
+                        f"Please run 'calsync' manually first to authenticate, or ensure {self.token_path} exists with valid credentials."
                     )
 
                 flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, SCOPES)
