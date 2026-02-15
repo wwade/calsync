@@ -1,10 +1,13 @@
 """Core sync engine for calendar synchronization."""
 
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Any
 
 from calendar_api import CalendarAPI
 from state_db import StateDB
+
+logger = logging.getLogger(__name__)
 
 
 class SyncEngine:
@@ -76,7 +79,7 @@ class SyncEngine:
                         stats["updated"] += 1
                         date_str = self._format_event_datetime(source_event)
                         title = self._get_event_title(source_event)
-                        print(f'  [DRY RUN] Would update event Date={date_str} "{title}"')
+                        logger.debug(f'Would update event Date={date_str} "{title}"')
                     elif self._update_synced_event(source_event, target_event_id):
                         self.state_db.record_sync(
                             source_calendar_id,
@@ -88,7 +91,7 @@ class SyncEngine:
                         stats["updated"] += 1
                         date_str = self._format_event_datetime(source_event)
                         title = self._get_event_title(source_event)
-                        print(f'Updated event Date={date_str} "{title}"')
+                        logger.info(f'Updated event Date={date_str} "{title}"')
                     else:
                         stats["skipped"] += 1
                 else:
@@ -99,7 +102,7 @@ class SyncEngine:
                     stats["created"] += 1
                     date_str = self._format_event_datetime(source_event)
                     title = self._get_event_title(source_event)
-                    print(f'  [DRY RUN] Would create event Date={date_str} "{title}"')
+                    logger.debug(f'Would create event Date={date_str} "{title}"')
                 else:
                     target_event = self._create_synced_event(source_event)
                     if target_event:
@@ -116,7 +119,7 @@ class SyncEngine:
                         stats["created"] += 1
                         date_str = self._format_event_datetime(source_event)
                         title = self._get_event_title(source_event)
-                        print(f'Added event Date={date_str} "{title}"')
+                        logger.info(f'Added event Date={date_str} "{title}"')
                     else:
                         stats["skipped"] += 1
 
@@ -137,9 +140,9 @@ class SyncEngine:
                         if target_event:
                             date_str = self._format_event_datetime(target_event)
                             title = self._get_event_title(target_event)
-                            print(f'  [DRY RUN] Would delete event Date={date_str} "{title}"')
+                            logger.debug(f'Would delete event Date={date_str} "{title}"')
                         else:
-                            print(f"  [DRY RUN] Would delete event ID={deleted_event_id}")
+                            logger.debug(f"Would delete event ID={deleted_event_id}")
                 else:
                     # Get event details before deleting
                     sync_record = self.state_db.get_synced_event(
@@ -164,9 +167,9 @@ class SyncEngine:
                     ):
                         stats["deleted"] += 1
                         if event_info:
-                            print(f"Deleted event {event_info}")
+                            logger.info(f"Deleted event {event_info}")
                         else:
-                            print(f"Deleted event ID={deleted_event_id}")
+                            logger.info(f"Deleted event ID={deleted_event_id}")
 
         # Print summary
         self._print_stats_summary(stats, source_name, source_calendar_id)
@@ -235,7 +238,7 @@ class SyncEngine:
                     stats["reconciled"] += 1
                     date_str = self._format_event_datetime(source_event)
                     title = self._get_event_title(source_event)
-                    print(f'  [DRY RUN] Would reconcile event Date={date_str} "{title}"')
+                    logger.debug(f'Would reconcile event Date={date_str} "{title}"')
                 else:
                     self.state_db.record_sync(
                         source_calendar_id,
@@ -247,7 +250,7 @@ class SyncEngine:
                     stats["reconciled"] += 1
                     date_str = self._format_event_datetime(source_event)
                     title = self._get_event_title(source_event)
-                    print(f'Reconciled event Date={date_str} "{title}"')
+                    logger.info(f'Reconciled event Date={date_str} "{title}"')
             else:
                 stats["not_found"] += 1
 
@@ -399,7 +402,7 @@ class SyncEngine:
         stats_str = " ".join(non_zero_stats) if non_zero_stats else "<No entries>"
 
         # Print with calendar info
-        print(f'{stats_str} Calendar="{source_name}" ID={source_calendar_id}')
+        logger.info(f'{stats_str} Calendar="{source_name}" ID={source_calendar_id}')
 
     def _build_event_key(self, event: dict[str, Any]) -> tuple | None:
         """Build a key for matching events.

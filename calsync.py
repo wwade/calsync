@@ -3,10 +3,13 @@
 
 import argparse
 from json import dumps
+import logging
 import os
 from socket import gaierror
 import sys
 
+from google.auth.exceptions import GoogleAuthError
+from googleapiclient.errors import Error
 from prettytable import PrettyTable
 from tenacity import (
     retry,
@@ -21,14 +24,16 @@ from calendar_api import CalendarAPI
 from state_db import StateDB
 from sync_engine import SyncEngine
 
+logger = logging.getLogger(__name__)
+
 
 def _log_retry_attempt(retry_state):
     """Log retry attempts for network failures."""
-    print(
+    logger.warning(
         f"Network error occurred (attempt {retry_state.attempt_number}/5): "
         f"{retry_state.outcome.exception()}"
     )
-    print(f"Retrying in {retry_state.next_action.sleep} seconds...")
+    logger.warning(f"Retrying in {retry_state.next_action.sleep} seconds...")
 
 
 @retry(
@@ -62,8 +67,8 @@ def load_config(config_path: str) -> dict:
         Configuration dictionary
     """
     if not os.path.exists(config_path):
-        print(f"Error: Config file not found: {config_path}")
-        print("Please copy config.yaml.example to config.yaml and customize it.")
+        logger.error(f"Config file not found: {config_path}")
+        logger.error("Please copy config.yaml.example to config.yaml and customize it.")
         sys.exit(1)
 
     with open(config_path) as f:
@@ -86,11 +91,14 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true", help="Show what would be synced without making changes"
     )
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
     parser.add_argument(
         "--reconcile",
         action="store_true",
-        help="Reconcile mode: detect and record existing events in target calendar that match source events",
+        help=(
+            "Reconcile mode: detect and record existing events in target calendar "
+            "that match source events"
+        ),
     )
     ex = parser.add_mutually_exclusive_group()
     ex.add_argument(
@@ -106,6 +114,13 @@ def main():
 
     args = parser.parse_args()
 
+    # Configure logging
+    log_format = "%(levelname)s: %(message)s"
+    if args.verbose:
+        log_format += " [%(filename)s:%(lineno)d]"
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format=log_format)
+
     # Handle --list-calendars mode (doesn't require config file)
     if args.list_calendars or args.json_list_calendars:
         use_json = args.json_list_calendars
@@ -116,24 +131,25 @@ def main():
                 credentials_file = config.get("credentials_file", "credentials.json")
             else:
                 credentials_file = "credentials.json"
-        except Exception:
+        except Exception as e:
+            logger.debug("exception: %s", e, exc_info=True)
             credentials_file = "credentials.json"
         if not os.path.exists(credentials_file):
-            print(f"Error: Credentials file not found: {credentials_file}")
-            print("\nTo set up Google Calendar API credentials:")
-            print("1. Go to https://console.cloud.google.com/")
-            print("2. Create a new project or select existing one")
-            print("3. Enable the Google Calendar API")
-            print("4. Create OAuth 2.0 credentials (Desktop app)")
-            print("5. Download the credentials JSON file")
-            print(f"6. Save it as '{credentials_file}' in this directory")
+            logger.error(f"Credentials file not found: {credentials_file}")
+            logger.error("\nTo set up Google Calendar API credentials:")
+            logger.error("1. Go to https://console.cloud.google.com/")
+            logger.error("2. Create a new project or select existing one")
+            logger.error("3. Enable the Google Calendar API")
+            logger.error("4. Create OAuth 2.0 credentials (Desktop app)")
+            logger.error("5. Download the credentials JSON file")
+            logger.error(f"6. Save it as '{credentials_file}' in this directory")
             sys.exit(1)
 
         try:
             api = initialize_calendar_api(credentials_file)
             calendars = api.list_calendars()
-        except Exception as e:
-            print(f"Error listing calendars: {e}")
+        except (GoogleAuthError, Error) as e:
+            logger.error(f"Error listing calendars: {e}")
             sys.exit(1)
 
         if not calendars:
@@ -159,7 +175,7 @@ def main():
                 access_role = cal.get("accessRole", "N/A")
                 primary = " (Primary)" if cal.get("primary", False) else ""
 
-                tbl.add_row((f"{summary}{primary}", str(cal_id), str(access_role)))
+                tbl.add_row([f"{summary}{primary}", str(cal_id), str(access_role)])
 
             print(tbl)
             print(f"Total: {len(calendars)} calendar(s)")
@@ -173,14 +189,14 @@ def main():
     # Check if credentials file exists
     credentials_file = config.get("credentials_file", "credentials.json")
     if not os.path.exists(credentials_file):
-        print(f"\nError: Credentials file not found: {credentials_file}")
-        print("\nTo set up Google Calendar API credentials:")
-        print("1. Go to https://console.cloud.google.com/")
-        print("2. Create a new project or select existing one")
-        print("3. Enable the Google Calendar API")
-        print("4. Create OAuth 2.0 credentials (Desktop app)")
-        print("5. Download the credentials JSON file")
-        print(f"6. Save it as '{credentials_file}' in this directory")
+        logger.error(f"\nCredentials file not found: {credentials_file}")
+        logger.error("\nTo set up Google Calendar API credentials:")
+        logger.error("1. Go to https://console.cloud.google.com/")
+        logger.error("2. Create a new project or select existing one")
+        logger.error("3. Enable the Google Calendar API")
+        logger.error("4. Create OAuth 2.0 credentials (Desktop app)")
+        logger.error("5. Download the credentials JSON file")
+        logger.error(f"6. Save it as '{credentials_file}' in this directory")
         sys.exit(1)
 
     try:
@@ -189,17 +205,17 @@ def main():
         sync_engine = SyncEngine(api, state_db, config, dry_run=args.dry_run)
 
         if args.dry_run:
-            print("\n*** DRY RUN MODE - No changes will be made ***\n")
+            logger.info("*** DRY RUN MODE - No changes will be made ***")
 
         if args.reconcile:
-            print("\n*** RECONCILE MODE - Detecting existing events ***\n")
+            logger.info("*** RECONCILE MODE - Detecting existing events ***")
 
         # Sync each source calendar
         source_calendars = config.get("source_calendars", [])
 
         if not source_calendars:
-            print("\nWarning: No source calendars configured.")
-            print("Please add source calendars to your config.yaml file.")
+            logger.warning("No source calendars configured.")
+            logger.warning("Please add source calendars to your config.yaml file.")
             sys.exit(0)
 
         for source_cal in source_calendars:
@@ -214,10 +230,10 @@ def main():
         state_db.close()
 
     except KeyboardInterrupt:
-        print("\n\nSync interrupted by user.")
+        logger.info("\n\nSync interrupted by user.")
         sys.exit(1)
     except Exception as e:
-        print(f"\nError during sync: {e}")
+        logger.error(f"\nError during sync: {e}")
         if args.verbose:
             import traceback
 
