@@ -1,11 +1,13 @@
 """Google Calendar API wrapper."""
 
 from datetime import datetime
+import logging
 import os
 from pathlib import Path
 import sys
 from typing import Any
 
+from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -15,6 +17,8 @@ from platformdirs import user_cache_dir
 
 # Scopes required for reading and writing calendar events
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+logger = logging.getLogger(__name__)
 
 
 class CalendarAPI:
@@ -44,9 +48,10 @@ class CalendarAPI:
             if creds and creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
-                except Exception as e:
+                    logger.info("Token refreshed successfully")
+                except GoogleAuthError as e:
                     # Refresh token is invalid/expired - need to re-authenticate
-                    print(f"Token refresh failed ({e}), re-authenticating...")
+                    logger.info(f"Token refresh failed ({e}), re-authenticating...")
                     creds = None
 
             if not creds:
@@ -60,7 +65,8 @@ class CalendarAPI:
                 if not sys.stdout.isatty():
                     raise RuntimeError(
                         "Authentication required but running in non-interactive environment.\n"
-                        f"Please run 'calsync' manually first to authenticate, or ensure {self.token_path} exists with valid credentials."
+                        f"Please run 'calsync' manually first to authenticate, "
+                        f"or ensure {self.token_path} exists with valid credentials."
                     )
 
                 flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, SCOPES)
@@ -68,6 +74,7 @@ class CalendarAPI:
 
             # Save credentials for next run
             tmp = self.token_path.with_suffix(".tmp")
+            tmp.parent.mkdir(parents=True, exist_ok=True)
             tmp.write_text(creds.to_json(), encoding="utf-8")
             tmp.chmod(0o600)
             tmp.replace(self.token_path)
@@ -108,7 +115,7 @@ class CalendarAPI:
             return events_result.get("items", [])
 
         except HttpError as error:
-            print(f"Error fetching events from {calendar_id}: {error}")
+            logger.error(f"Error fetching events from {calendar_id}: {error}")
             return []
 
     def create_event(self, calendar_id: str, event_data: dict[str, Any]) -> dict[str, Any] | None:
@@ -127,7 +134,7 @@ class CalendarAPI:
             return event
 
         except HttpError as error:
-            print(f"Error creating event: {error}")
+            logger.error(f"Error creating event: {error}")
             return None
 
     def update_event(
@@ -153,7 +160,7 @@ class CalendarAPI:
             return event
 
         except HttpError as error:
-            print(f"Error updating event {event_id}: {error}")
+            logger.error(f"Error updating event {event_id}: {error}")
             return None
 
     def delete_event(self, calendar_id: str, event_id: str) -> bool:
@@ -172,7 +179,7 @@ class CalendarAPI:
             return True
 
         except HttpError as error:
-            print(f"Error deleting event {event_id}: {error}")
+            logger.error(f"Error deleting event {event_id}: {error}")
             return False
 
     def get_event(self, calendar_id: str, event_id: str) -> dict[str, Any] | None:
@@ -191,9 +198,10 @@ class CalendarAPI:
             return event
 
         except HttpError as error:
+            logger.debug("HttpError: %s", error)
             if error.resp.status == 404:
                 return None
-            print(f"Error fetching event {event_id}: {error}")
+            logger.error(f"Error fetching event {event_id}: {error}")
             return None
 
     def list_calendars(self) -> list[dict[str, Any]]:
@@ -202,10 +210,5 @@ class CalendarAPI:
         Returns:
             List of calendar dictionaries with id, summary, and access role
         """
-        try:
-            calendar_list = self.service.calendarList().list().execute()
-            return calendar_list.get("items", [])
-
-        except HttpError as error:
-            print(f"Error listing calendars: {error}")
-            return []
+        calendar_list = self.service.calendarList().list().execute()
+        return calendar_list.get("items", [])
