@@ -1,6 +1,7 @@
 """Google Calendar API wrapper."""
 
 from datetime import datetime
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -12,11 +13,31 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.discovery_cache.base import Cache
 from googleapiclient.errors import HttpError
 from platformdirs import user_cache_dir
 
 # Scopes required for reading and writing calendar events
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+
+class _DiscoveryCache(Cache):
+    """File-based cache for the Google API discovery document."""
+
+    def __init__(self, cache_dir: Path):
+        self._dir = cache_dir
+        self._dir.mkdir(parents=True, exist_ok=True)
+
+    def _path(self, url: str) -> Path:
+        return self._dir / hashlib.md5(url.encode()).hexdigest()
+
+    def get(self, url: str):
+        p = self._path(url)
+        return p.read_text(encoding="utf-8") if p.exists() else None
+
+    def set(self, url: str, content: str):
+        self._path(url).write_text(content, encoding="utf-8")
+
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +100,8 @@ class CalendarAPI:
             tmp.chmod(0o600)
             tmp.replace(self.token_path)
 
-        self.service = build("calendar", "v3", credentials=creds)
+        discovery_cache = _DiscoveryCache(self.token_path.parent / "discovery_cache")
+        self.service = build("calendar", "v3", credentials=creds, cache=discovery_cache)
 
     def get_events(
         self, calendar_id: str, time_min: datetime, time_max: datetime
