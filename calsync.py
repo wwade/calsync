@@ -5,22 +5,15 @@ import argparse
 from json import dumps
 import logging
 import os
-from socket import gaierror
 import sys
 
 from google.auth.exceptions import GoogleAuthError
 from googleapiclient.errors import Error
+from httplib2.error import ServerNotFoundError
 from prettytable import PrettyTable
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
-from urllib3.exceptions import NameResolutionError, NewConnectionError
 import yaml
 
-from calendar_api import CalendarAPI
+from calendar_api import CalendarAPI, TemporaryError
 from state_db import StateDB
 from sync_engine import SyncEngine
 
@@ -36,12 +29,6 @@ def _log_retry_attempt(retry_state):
     logger.warning(f"Retrying in {retry_state.next_action.sleep} seconds...")
 
 
-@retry(
-    retry=retry_if_exception_type((gaierror, NameResolutionError, NewConnectionError, OSError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=4, max=60),
-    before_sleep=_log_retry_attempt,
-)
 def initialize_calendar_api(credentials_file: str) -> CalendarAPI:
     """Initialize CalendarAPI with retry logic for network failures.
 
@@ -148,6 +135,9 @@ def main():
         try:
             api = initialize_calendar_api(credentials_file)
             calendars = api.list_calendars()
+        except TemporaryError as e:
+            logger.warning(f"Temporary error: {e}")
+            sys.exit(0)
         except (GoogleAuthError, Error) as e:
             logger.error(f"Error listing calendars: {e}")
             sys.exit(1)
@@ -229,15 +219,13 @@ def main():
         # Clean up
         state_db.close()
 
+    except (ServerNotFoundError, TemporaryError) as e:
+        logger.warning(f"Temporary error: {e}", exc_info=bool(args.verbose))
     except KeyboardInterrupt:
         logger.info("\n\nSync interrupted by user.")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"\nError during sync: {e}")
-        if args.verbose:
-            import traceback
-
-            traceback.print_exc()
+        logger.error(f"\nError during sync: {e}", exc_info=bool(args.verbose))
         sys.exit(1)
 
 

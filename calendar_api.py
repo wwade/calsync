@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from google.auth.exceptions import GoogleAuthError
+from google.auth.exceptions import GoogleAuthError, TransportError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -42,6 +42,10 @@ class _DiscoveryCache(Cache):
 logger = logging.getLogger(__name__)
 
 
+class TemporaryError(Exception):
+    pass
+
+
 class CalendarAPI:
     """Wrapper for Google Calendar API operations."""
 
@@ -70,9 +74,12 @@ class CalendarAPI:
                 try:
                     creds.refresh(Request())
                     logger.info("Token refreshed successfully")
+                except TransportError as e:
+                    logger.warning(f"Token refresh failed: {e}, ignoring")
+                    raise TemporaryError(str(e)) from e
                 except GoogleAuthError as e:
                     # Refresh token is invalid/expired - need to re-authenticate
-                    logger.info(f"Token refresh failed ({e}), re-authenticating...")
+                    logger.info(f"Token refresh failed: {e}, re-authenticating")
                     creds = None
 
             if not creds:
@@ -122,6 +129,7 @@ class CalendarAPI:
             time_min_str = time_min.isoformat().replace("+00:00", "Z")
             time_max_str = time_max.isoformat().replace("+00:00", "Z")
 
+            assert self.service
             events_result = (
                 self.service.events()
                 .list(
