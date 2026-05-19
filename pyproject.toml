@@ -19,7 +19,7 @@ calsync = "calsync:main"
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.8.0",
+    "ruff>=0.15.12",
 ]
 
 [build-system]
@@ -55,5 +55,5 @@ indent-style = "space"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.14.14",
+    "ruff>=0.15.12",
 ]
