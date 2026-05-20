@@ -98,7 +98,13 @@ uv run calsync --list-calendars
 
 ### Systemd Timer Setup
 
-For a more robust solution using systemd, see [SYSTEMD_SETUP.md](./SYSTEMD_SETUP.md).
+For automatic syncing via systemd, run the helper script to install and enable the timer:
+
+```bash
+python3 mktimer.py
+```
+
+This copies the unit files to `~/.config/systemd/user/`, substitutes the correct paths, and enables the timer. For more details and customization options, see [SYSTEMD_SETUP.md](./SYSTEMD_SETUP.md).
 
 ### Development
 
