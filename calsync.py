@@ -121,6 +121,7 @@ def main():
         except Exception as e:
             logger.debug("exception: %s", e, exc_info=True)
             credentials_file = "credentials.json"
+        credentials_file = os.path.expanduser(credentials_file)
         if not os.path.exists(credentials_file):
             logger.error(f"Credentials file not found: {credentials_file}")
             logger.error("\nTo set up Google Calendar API credentials:")
@@ -177,7 +178,7 @@ def main():
     config = load_config(args.config)
 
     # Check if credentials file exists
-    credentials_file = config.get("credentials_file", "credentials.json")
+    credentials_file = os.path.expanduser(config.get("credentials_file", "credentials.json"))
     if not os.path.exists(credentials_file):
         logger.error(f"\nCredentials file not found: {credentials_file}")
         logger.error("\nTo set up Google Calendar API credentials:")
