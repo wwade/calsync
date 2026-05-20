@@ -55,7 +55,7 @@ class CalendarAPI:
         Args:
             credentials_file: Path to credentials.json file
         """
-        self.credentials_file = credentials_file
+        self.credentials_file = os.path.expanduser(credentials_file)
         self.token_path = Path(user_cache_dir("calsync")) / "token.json"
         self.service = None
         self._authenticate()
