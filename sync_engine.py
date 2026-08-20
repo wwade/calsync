@@ -127,16 +127,26 @@ class SyncEngine:
         if self.delete_on_source_delete:
             deleted_events = synced_events - current_source_event_ids
             for deleted_event_id in deleted_events:
+                sync_record = self.state_db.get_synced_event(source_calendar_id, deleted_event_id)
+                target_event = None
+                if sync_record:
+                    _, target_event_id, _ = sync_record
+                    target_event = self.api.get_event(self.target_calendar_id, target_event_id)
+
+                # Source calendars sometimes remove an event after it has happened. Keep the
+                # target copy as a historical record instead of treating that as a deletion.
+                if target_event and self._event_is_past(target_event):
+                    stats["skipped"] += 1
+                    date_str = self._format_event_datetime(target_event)
+                    title = self._get_event_title(target_event)
+                    logger.debug(f'Preserving past event Date={date_str} "{title}"')
+                    continue
+
                 if self.dry_run:
                     # In dry-run mode, just peek at what would be deleted
-                    sync_record = self.state_db.get_synced_event(
-                        source_calendar_id, deleted_event_id
-                    )
                     if sync_record:
                         stats["deleted"] += 1
                         # Try to get event details for display
-                        _, target_event_id, _ = sync_record
-                        target_event = self.api.get_event(self.target_calendar_id, target_event_id)
                         if target_event:
                             date_str = self._format_event_datetime(target_event)
                             title = self._get_event_title(target_event)
@@ -145,13 +155,8 @@ class SyncEngine:
                             logger.debug(f"Would delete event ID={deleted_event_id}")
                 else:
                     # Get event details before deleting
-                    sync_record = self.state_db.get_synced_event(
-                        source_calendar_id, deleted_event_id
-                    )
                     event_info = None
                     if sync_record:
-                        _, target_event_id, _ = sync_record
-                        target_event = self.api.get_event(self.target_calendar_id, target_event_id)
                         if target_event:
                             date_str = self._format_event_datetime(target_event)
                             title = self._get_event_title(target_event)
@@ -323,6 +328,23 @@ class SyncEngine:
             Event title
         """
         return event.get("summary", "Untitled Event")
+
+    def _event_is_past(self, event: dict[str, Any]) -> bool:
+        """Return whether an event has finished.
+
+        Google represents timed event ends with ``dateTime`` and all-day event ends with an
+        exclusive ``date``. Comparing the parsed end against the current UTC time handles both
+        representations and preserves ongoing events for normal deletion handling.
+        """
+        end = event.get("end", {})
+        end_str = end.get("dateTime") or end.get("date")
+        if not end_str:
+            return False
+
+        end_time = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+        if end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=timezone.utc)
+        return end_time.astimezone(timezone.utc) <= datetime.now(timezone.utc)
 
     def _format_event_datetime(self, event: dict[str, Any]) -> str:
         """Format event datetime for display.
