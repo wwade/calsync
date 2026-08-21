@@ -21,7 +21,7 @@ jobs:
 
       # Scans only what changed in the PR / push range (fast)
       - name: TruffleHog (diff scan)
-        uses: trufflesecurity/trufflehog@v3.96.0
+        uses: trufflesecurity/trufflehog@v3.97.0
         with:
           path: .
           base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
