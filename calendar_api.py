@@ -130,19 +130,25 @@ class CalendarAPI:
             time_max_str = time_max.isoformat().replace("+00:00", "Z")
 
             assert self.service
-            events_result = (
-                self.service.events()
-                .list(
-                    calendarId=calendar_id,
-                    timeMin=time_min_str,
-                    timeMax=time_max_str,
-                    singleEvents=True,
-                    orderBy="startTime",
+            events = []
+            page_token = None
+            while True:
+                events_result = (
+                    self.service.events()
+                    .list(
+                        calendarId=calendar_id,
+                        timeMin=time_min_str,
+                        timeMax=time_max_str,
+                        singleEvents=True,
+                        orderBy="startTime",
+                        pageToken=page_token,
+                    )
+                    .execute()
                 )
-                .execute()
-            )
-
-            return events_result.get("items", [])
+                events.extend(events_result.get("items", []))
+                page_token = events_result.get("nextPageToken")
+                if not page_token:
+                    return events
 
         except HttpError as error:
             logger.error(f"Error fetching events from {calendar_id}: {error}")
