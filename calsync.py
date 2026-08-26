@@ -64,6 +64,15 @@ def load_config(config_path: str) -> dict:
     return config
 
 
+def _filter_source_calendars(source_calendars: list[dict], calendar_id: str | None) -> list[dict]:
+    """Limit source calendars to the requested ID when one was provided."""
+    if calendar_id is None:
+        return source_calendars
+    return [
+        source_cal for source_cal in source_calendars if source_cal["calendar_id"] == calendar_id
+    ]
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -87,6 +96,10 @@ def main():
             "that match source events"
         ),
     )
+    parser.add_argument(
+        "--calendar-id",
+        help="Only reconcile the configured source calendar with this ID",
+    )
     ex = parser.add_mutually_exclusive_group()
     ex.add_argument(
         "--list-calendars",
@@ -100,6 +113,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.calendar_id and not args.reconcile:
+        parser.error("--calendar-id can only be used with --reconcile")
 
     # Configure logging
     log_format = "%(levelname)s: %(message)s"
@@ -208,6 +224,11 @@ def main():
             logger.warning("No source calendars configured.")
             logger.warning("Please add source calendars to your config.yaml file.")
             sys.exit(0)
+
+        source_calendars = _filter_source_calendars(source_calendars, args.calendar_id)
+        if args.calendar_id and not source_calendars:
+            logger.error("Calendar ID %r is not configured in source_calendars.", args.calendar_id)
+            sys.exit(1)
 
         for source_cal in source_calendars:
             name = source_cal["name"]

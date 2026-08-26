@@ -180,11 +180,13 @@ class SyncEngine:
         self._print_stats_summary(stats, source_name, source_calendar_id)
 
     def reconcile_calendar(self, source_name: str, source_calendar_id: str):
-        """Reconcile existing events in target calendar with source events.
+        """Reconcile target events with source events and restore missing events.
 
         This is useful when the database is not initialized but events already exist
         in the target calendar. It will detect matching events and record them in
-        the database to avoid creating duplicates.
+        the database to avoid creating duplicates. Source events without a matching
+        target event are created, including events whose previously mapped target
+        event was deleted.
 
         Args:
             source_name: Human-readable name of source calendar
@@ -211,7 +213,13 @@ class SyncEngine:
                 target_lookup[key] = target_event
 
         # Track statistics
-        stats = {"reconciled": 0, "already_tracked": 0, "not_found": 0, "target_already_mapped": 0}
+        stats = {
+            "reconciled": 0,
+            "restored": 0,
+            "already_tracked": 0,
+            "not_found": 0,
+            "target_already_mapped": 0,
+        }
 
         # Try to match each source event with target events
         for source_event in source_events:
@@ -220,7 +228,41 @@ class SyncEngine:
             # Check if already tracked in database
             sync_record = self.state_db.get_synced_event(source_calendar_id, source_event_id)
             if sync_record:
-                stats["already_tracked"] += 1
+                _, target_event_id, _ = sync_record
+                target_event_exists = any(
+                    event.get("id") == target_event_id for event in target_events
+                )
+                if not target_event_exists:
+                    target_event_exists = (
+                        self.api.get_event(self.target_calendar_id, target_event_id) is not None
+                    )
+                if target_event_exists:
+                    stats["already_tracked"] += 1
+                    continue
+
+                # The stored target ID is missing, so try to recover an equivalent event
+                # before creating a new one.
+                expected_key = self._build_event_key_from_data(self._build_event_data(source_event))
+                target_event = target_lookup.get(expected_key)
+                if target_event:
+                    existing_mapping = self.state_db.get_by_target_event(target_event["id"])
+                    if not existing_mapping or existing_mapping == (
+                        source_calendar_id,
+                        source_event_id,
+                    ):
+                        self.state_db.record_sync(
+                            source_calendar_id,
+                            source_event_id,
+                            self.target_calendar_id,
+                            target_event["id"],
+                            self._get_updated_time(source_event),
+                        )
+                        stats["reconciled"] += 1
+                        continue
+
+                # The source event is tracked, but its target copy is gone.
+                if not self._restore_reconciled_event(source_event, source_calendar_id, stats):
+                    stats["not_found"] += 1
                 continue
 
             # Build expected event data and key
@@ -257,10 +299,40 @@ class SyncEngine:
                     title = self._get_event_title(source_event)
                     logger.info(f'Reconciled event Date={date_str} "{title}"')
             else:
-                stats["not_found"] += 1
+                if not self._restore_reconciled_event(source_event, source_calendar_id, stats):
+                    stats["not_found"] += 1
 
         # Print summary
         self._print_stats_summary(stats, source_name, source_calendar_id)
+
+    def _restore_reconciled_event(
+        self, source_event: dict[str, Any], source_calendar_id: str, stats: dict[str, int]
+    ) -> bool:
+        """Create and record a source event that has no target copy."""
+        source_event_id = source_event["id"]
+        source_updated = self._get_updated_time(source_event)
+        date_str = self._format_event_datetime(source_event)
+        title = self._get_event_title(source_event)
+
+        if self.dry_run:
+            stats["restored"] += 1
+            logger.debug(f'Would restore event Date={date_str} "{title}"')
+            return True
+
+        target_event = self._create_synced_event(source_event)
+        if not target_event:
+            return False
+
+        self.state_db.record_sync(
+            source_calendar_id,
+            source_event_id,
+            self.target_calendar_id,
+            target_event["id"],
+            source_updated,
+        )
+        stats["restored"] += 1
+        logger.info(f'Restored event Date={date_str} "{title}"')
+        return True
 
     def _create_synced_event(self, source_event: dict[str, Any]) -> dict[str, Any] | None:
         """Create a new event in target calendar from source event.
@@ -408,6 +480,7 @@ class SyncEngine:
             "skipped": "Skipped",
             "deleted": "Deleted",
             "reconciled": "Reconciled",
+            "restored": "Restored",
             "already_tracked": "AlreadyTracked",
             "not_found": "NotFoundInTarget",
             "target_already_mapped": "TargetAlreadyMapped",
