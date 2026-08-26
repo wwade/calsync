@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
+from calsync import _filter_source_calendars
 from sync_engine import SyncEngine
 
 
@@ -34,6 +35,88 @@ def test_all_day_event_uses_exclusive_end_date():
 
 def test_event_without_end_is_not_assumed_past():
     assert not _engine()._event_is_past({})
+
+
+def test_filter_source_calendars_by_id():
+    calendars = [
+        {"name": "Work", "calendar_id": "work"},
+        {"name": "Personal", "calendar_id": "personal"},
+    ]
+
+    assert _filter_source_calendars(calendars, "personal") == [calendars[1]]
+
+
+def test_filter_source_calendars_without_id_preserves_all():
+    calendars = [{"name": "Work", "calendar_id": "work"}]
+
+    assert _filter_source_calendars(calendars, None) == calendars
+
+
+def test_reconcile_restores_tracked_event_with_deleted_target():
+    source_event = {
+        "id": "source-event",
+        "summary": "Appointment",
+        "start": {"dateTime": "2099-08-20T10:00:00Z"},
+        "end": {"dateTime": "2099-08-20T11:00:00Z"},
+    }
+    api = Mock()
+    api.get_events.side_effect = [[source_event], []]
+    api.get_event.return_value = None
+    api.create_event.return_value = {"id": "new-target-event"}
+    state_db = Mock()
+    state_db.get_synced_event.return_value = (
+        "target",
+        "deleted-target-event",
+        datetime.now(timezone.utc),
+    )
+    engine = SyncEngine(
+        api,
+        state_db,
+        {"target_calendar_id": "target", "sync": {}},
+    )
+
+    engine.reconcile_calendar("Appointments", "source")
+
+    api.create_event.assert_called_once()
+    state_db.record_sync.assert_called_once_with(
+        "source",
+        "source-event",
+        "target",
+        "new-target-event",
+        None,
+    )
+
+
+def test_reconcile_reuses_equivalent_event_for_stale_mapping():
+    source_event = {
+        "id": "source-event",
+        "summary": "Appointment",
+        "start": {"dateTime": "2099-08-20T10:00:00Z"},
+        "end": {"dateTime": "2099-08-20T11:00:00Z"},
+    }
+    target_event = {**source_event, "id": "existing-target-event"}
+    api = Mock()
+    api.get_events.side_effect = [[source_event], [target_event]]
+    api.get_event.return_value = None
+    state_db = Mock()
+    state_db.get_synced_event.return_value = ("target", "stale-target-event", Mock())
+    state_db.get_by_target_event.return_value = None
+    engine = SyncEngine(
+        api,
+        state_db,
+        {"target_calendar_id": "target", "sync": {}},
+    )
+
+    engine.reconcile_calendar("Appointments", "source")
+
+    api.create_event.assert_not_called()
+    state_db.record_sync.assert_called_once_with(
+        "source",
+        "source-event",
+        "target",
+        "existing-target-event",
+        None,
+    )
 
 
 def test_sync_preserves_missing_past_event():

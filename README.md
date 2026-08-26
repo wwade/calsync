@@ -89,6 +89,10 @@ uv run calsync --config my-config.yaml
 # Dry run (see what would be synced without making changes)
 uv run calsync --dry-run
 
+# Reconcile one configured source calendar by ID
+uv run calsync --reconcile --calendar-id your-calendar-id@group.calendar.google.com
+# Reconcile restores source events whose target copies are missing
+
 # Verbose output
 uv run calsync --verbose
 
